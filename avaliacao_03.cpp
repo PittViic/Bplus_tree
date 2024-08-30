@@ -70,6 +70,8 @@ typedef struct page { // Uma pagina é um vetor em si
 // Em vetor com no maximo 4 posições(ordem 5), onde no meio de cada vetor se possui um ponteiro ligando se a ele
 // Os vetores vão formar uma especie de lista encadeada horizontal, sempre de forma crescente
 
+medicamentos *search_medicine(pagina *root, int element);
+
 // Criando a pagina
 pagina *create_page(){
     pagina *new_element = (pagina *)malloc(sizeof(pagina));
@@ -82,7 +84,7 @@ pagina *create_page(){
     }
 
     // Inicializando vazio os medicamentos
-    for(int i = 0; i < 4; i++){
+    for(int i = 0; i < N - 1; i++){
         new_element->medicine[i] = NULL;
         new_element->referencia[i] = 0;
     }
@@ -95,10 +97,23 @@ pagina *create_page(){
     return new_element;
 }
 
-void info_medicamentos(medicamentos *novo){
+medicamentos *info_medicamentos(pagina *root, medicamentos *novo){
+    medicamentos *temp;
 
     printf("Codigo de barras: ");
     scanf("%d", &novo->codigo_barra);
+
+    temp = search_medicine(root, novo->codigo_barra);
+
+    if(temp != NULL){
+        int quant;
+        printf("Esse medicamento ja esta registrado no sistema.\n Quantas unidades do produto deseja adicionar? ");
+        scanf("%d", &quant);
+
+        temp->quantidade = temp->quantidade + quant;
+
+        return NULL;
+    }
 
     printf("Nome do medicamento: ");
     scanf("%s", novo->nome_medicamento);
@@ -111,9 +126,11 @@ void info_medicamentos(medicamentos *novo){
 
     printf("Data de cadastro (dd mm aaaa): ");
     scanf("%d %d %d", &novo->data_cadastro.dia, &novo->data_cadastro.mes, &novo->data_cadastro.ano);
+
+    return novo;
 }
 
-pagina *quebra_vetor(pagina *page){
+void quebra_vetor(pagina **root, pagina *page, int value){
     int middle = N / 2;
 
     pagina *new_element = create_page();
@@ -134,21 +151,16 @@ pagina *quebra_vetor(pagina *page){
         page->next = new_element;
     } else { // Caso não seja folha (tratando dos nós de referencia)
         // Transferência de referências e filhos para a nova página
-        for (int i = middle + 1; i < N; i++) {
-            new_element->referencia[i - (middle + 1)] = page->referencia[i - 1];
-            new_element->filhos[i - (middle + 1)] = page->filhos[i];
-            if (new_element->filhos[i - (middle + 1)] != NULL) {
-                new_element->filhos[i - (middle + 1)]->father = new_element;
-            }
-            page->referencia[i - 1] = 0;
-            page->filhos[i] = NULL;
+        int i;
+        int j = 0;
+        for(i = middle; i < N; i++, j++){
+            new_element->filhos[j] = page->filhos[i + 1];
+            new_element->referencia[j] = page->referencia[i];
+            page->referencia[i] = 0;
+            page->filhos[i + 1] = NULL;
         }
-        new_element->filhos[N - middle - 1] = page->filhos[N];
-        if (new_element->filhos[N - middle - 1] != NULL) {
-            new_element->filhos[N - middle - 1]->father = new_element;
-        }
-        page->qtd = middle;
         new_element->qtd = N - 1 - middle;
+        page->qtd = middle;
     }
     
     // Atualizar dados do ponteiro
@@ -161,66 +173,95 @@ pagina *quebra_vetor(pagina *page){
         nova_raiz->filhos[1] = new_element;
         new_element->father = nova_raiz;
         page->father = nova_raiz;
+        *root = nova_raiz;
 
-        return nova_raiz;
     } else {
-        // Inserindo nova referência e ponteiro na página pai
-        pagina *father = page->father;
+        // Inserindo nova referência e ponteiro na página pai (caso tenha pai)
 
-        int i = father->qtd - 1;
-        while (i >= 0 && father->referencia[i] > page->referencia[middle - 1]) {
-            father->referencia[i + 1] = father->referencia[i];
-            father->filhos[i + 2] = father->filhos[i + 1];
-            i--;
-        }
-        father->referencia[i + 1] = page->referencia[middle - 1];
-        father->filhos[i + 2] = new_element;
-        new_element->father = father;
-        father->qtd++;
+        if(page->father->qtd == N - 1){
+            int i = 0;
 
-        if (father->qtd == N - 1) {
-            // Caso o pai também esteja cheio, é necessário quebrar o vetor do pai
-            return quebra_vetor(father);
+            if(page->father->father == NULL){
+                quebra_vetor(root, page->father, 0);
+            } else {
+                quebra_vetor(root, page->father, page->father->father->qtd);
+            }
+
+            pagina *father = page->father->father->filhos[page->father->father->qtd];
+
+            while(i < father->qtd){
+                father->referencia[i] = father->referencia[i + 1];
+                i++;
+            }
+
+            if(father->referencia[0] > new_element->referencia[0]){
+                father->qtd--;
+                father = page->father;
+            }
+
+            father->referencia[i - 1] = new_element->referencia[0];
+            father->filhos[i] = new_element;
+            new_element->father = father;
+
+            return; 
         }
-        return father;
+
+        int i;
+        for(i = page->father->qtd; i > value; i--){
+            page->father->referencia[i] = page->father->referencia[i - 1];
+            page->father->filhos[i + 1] = page->father->filhos[i];
+        }
+        page->father->referencia[value] = new_element->referencia[0];
+        page->father->filhos[value + 1] = new_element;
+        page->father->qtd++;
+        new_element->father = page->father;
     }
 }
 
 // Em cada filho, no caso 5, se possui um vetor, ou seja, 5 vetores (um vetor indicando a existencia de 5 vetores)
-void inserir_medicamento(pagina *new_element, medicamentos *novo){
-    int i = new_element->qtd - 1;
+void inserir_medicamento(pagina **page, medicamentos *novo){
+    int i = (*page)->qtd - 1;
 
-    if(new_element->leaf == true){
-        while(i >= 0 && new_element->referencia[i] > novo->codigo_barra){
-            new_element->medicine[i + 1] = new_element->medicine[i]; // Passa a ser o posterior (como se fosse o anterior)
-            new_element->referencia[i + 1] = new_element->referencia[i]; // Mesma coisa
+    if((*page)->leaf == true){
+        while(i >= 0 && (*page)->referencia[i] > novo->codigo_barra){
+            (*page)->medicine[i + 1] = (*page)->medicine[i]; // Passa a ser o posterior (como se fosse o anterior)
+            (*page)->referencia[i + 1] = (*page)->referencia[i]; // Mesma coisa
             i--; // Reduzo um para realizar novamente a comparação
         }
         i++; // Volto i ao seu estado normal
         // Atualizo valores e realizo a inserção
-        new_element->medicine[i] = novo;
-        new_element->referencia[i] = novo->codigo_barra;
-        new_element->qtd++;
+        (*page)->medicine[i] = novo;
+        (*page)->referencia[i] = novo->codigo_barra;
+        (*page)->qtd++;
 
     } else {
-        while(i >= 0 && new_element->referencia[i] > novo->codigo_barra){
+        while(i >= 0 && (*page)->referencia[i] > novo->codigo_barra){
             i--;
         }
         i++;
 
-        if(new_element->filhos[i]->qtd == N - 1){
-            new_element->filhos[i] = quebra_vetor(new_element->filhos[i]);
-            if(new_element->referencia[i] < novo->codigo_barra){
-                i++;
+        if((*page)->filhos[i]->qtd == N - 1 && (*page)->filhos[i]->leaf == true){
+            quebra_vetor(&(*page), (*page)->filhos[i], i);
+            if((*page)->father == NULL){
+                inserir_medicamento(page, novo);
+            } else {
+                inserir_medicamento(&(*page)->father, novo);
             }
+        } else {
+            inserir_medicamento(&(*page)->filhos[i], novo);
         }
-        inserir_medicamento(new_element->filhos[i], novo);
     }
 } 
 
 void inserir_raiz(pagina **raiz){
     medicamentos *novo = (medicamentos *)malloc(sizeof(medicamentos));
-    info_medicamentos(novo);
+    novo = info_medicamentos(*raiz, novo);
+
+    // O elemento novo só teve sua quantidade de elementos aumentada
+    if(novo == NULL){
+        free(novo);
+        return;
+    }
 
     if((*raiz) == NULL){
         (*raiz) = create_page();
@@ -230,9 +271,9 @@ void inserir_raiz(pagina **raiz){
         (*raiz)->qtd++;
     } else {
         if((*raiz)->qtd == N - 1 && (*raiz)->leaf == true){
-            *raiz = quebra_vetor(*raiz);
+            quebra_vetor(raiz, *raiz, 0);
         }
-        inserir_medicamento((*raiz), novo);
+        inserir_medicamento(&(*raiz), novo);
     }
 }
 
@@ -303,26 +344,32 @@ void print_nivel(pagina *page, int nivel) {
         printf("   ");
     }
 
-    // Imprime as referências do nível atual
-    printf("Referencias (Nivel %d): ", nivel);
+    // Imprime as chaves do nível atual
+    printf("Nivel %d [", nivel);
     for (int i = 0; i < page->qtd; i++) {
-        printf("%d ", page->referencia[i]);
-    }
-    printf("\n");
-
-    // Imprime os medicamentos do nível atual
-    for (int i = 0; i < nivel; i++) {
-        printf("   ");
-    }
-    printf("Medicamentos (Nivel %d): ", nivel);
-    for (int i = 0; i < page->qtd; i++) {
-        if (page->medicine[i] != NULL) {
-            printf("%d ", page->medicine[i]->codigo_barra);
+        printf("%d", page->referencia[i]);
+        if (i < page->qtd - 1) {
+            printf(", ");
         }
     }
+    printf("]");
+
+    if (page->leaf) {
+        // Imprime os dados dos medicamentos nas folhas
+        printf(" -> ");
+        for (int i = 0; i < page->qtd; i++) {
+            medicamentos *med = page->medicine[i];
+            printf("{Codigo: %d, Nome: %s, Qtde: %d, Preco: %.2f}", 
+                   med->codigo_barra, med->nome_medicamento, med->quantidade, med->valor);
+            if (i < page->qtd - 1) {
+                printf(", ");
+            }
+        }
+    }
+
     printf("\n");
 
-    // Recursivamente imprime os filhos
+    // Recursivamente imprime os filhos (se existirem)
     if (!page->leaf) {
         for (int i = 0; i <= page->qtd; i++) {
             print_nivel(page->filhos[i], nivel + 1);
@@ -336,7 +383,7 @@ void print_arvore(pagina *root) {
 
 // Fica para imaginação do professor
 pagina *gather_pages(pagina *root){
-
+    // Função seria realizada para junção de paginas
 }
 
 void remover(pagina **root, int toRemove){
@@ -418,7 +465,7 @@ int main(){
             case 4:
                 printf("Elemento a remover: ");
                 scanf("%d", &toRemove);
-                //node = remover_no(node, toRemove);
+                remover(&raiz, toRemove);
                 break;
             case 0:
                 printf("Closing...\n");
